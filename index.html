@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wikipedia Unscrambler</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', serif;
+            background: #fafafa;
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: normal;
+            margin-bottom: 40px;
+            color: #222;
+        }
+
+        .controls {
+            margin-bottom: 40px;
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+        }
+
+        .controls button {
+            background: none;
+            border: 1px solid #ddd;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            color: #666;
+        }
+
+        .controls button:hover {
+            border-color: #999;
+        }
+
+        .controls button.active {
+            background: #333;
+            color: white;
+            border-color: #333;
+        }
+
+        .text-area {
+            margin-bottom: 50px;
+            font-size: 18px;
+            line-height: 2.2;
+        }
+
+        .word-input {
+            border: none;
+            border-bottom: 1px solid #ddd;
+            padding: 2px 4px;
+            font-size: 18px;
+            font-family: 'Georgia', serif;
+            background: transparent;
+            min-width: 60px;
+        }
+
+        .word-input::placeholder {
+            color: #999;
+            opacity: 1;
+        }
+
+        .word-input:focus {
+            outline: none;
+            border-bottom-color: #333;
+        }
+
+        .word-input.correct {
+            border-bottom-color: #28a745;
+        }
+
+        .guess-area {
+            margin-top: 60px;
+            padding-top: 30px;
+            border-top: 1px solid #eee;
+        }
+
+        .guess-area p {
+            font-size: 14px;
+            margin-bottom: 15px;
+            color: #666;
+        }
+
+        .guess-input {
+            width: 100%;
+            border: 1px solid #ddd;
+            padding: 12px;
+            font-size: 16px;
+            font-family: inherit;
+            margin-bottom: 10px;
+        }
+
+        .guess-input:focus {
+            outline: none;
+            border-color: #333;
+        }
+
+        .hint {
+            font-size: 13px;
+            color: #999;
+            margin-top: 10px;
+        }
+
+        .hint button {
+            background: none;
+            border: none;
+            color: #666;
+            text-decoration: underline;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+        }
+
+        .hint button:hover {
+            color: #333;
+        }
+
+        .feedback {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #dc3545;
+        }
+
+        .progress {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+
+        .success {
+            text-align: center;
+            padding: 80px 20px;
+        }
+
+        .success h2 {
+            font-size: 20px;
+            font-weight: normal;
+            margin-bottom: 15px;
+            color: #28a745;
+        }
+
+        .success .title {
+            font-size: 24px;
+            margin: 30px 0;
+            color: #222;
+        }
+
+        .success button {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="app">
+        <div class="loading">Loading...</div>
+    </div>
+
+    <script>
+        const WikipediaUnscrambler = {
+            // State management
+            state: {
+                gameState: 'loading',
+                difficulty: 'medium',
+                articles: { easy: null, medium: null, hard: null },
+                scrambledWords: { easy: [], medium: [], hard: [] },
+                userInputs: { easy: [], medium: [], hard: [] },
+                guessInput: { easy: '', medium: '', hard: '' },
+                guessResult: { easy: null, medium: null, hard: null },
+                hintsRevealed: { easy: 0, medium: 0, hard: 0 }
+            },
+
+            // Initialize the app
+            init() {
+                this.fetchAllArticles();
+            },
+
+            // Utility: Scramble a word
+            scrambleWord(word) {
+                const arr = word.split('');
+                for (let i = arr.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [arr[i], arr[j]] = [arr[j], arr[i]];
+                }
+                return arr.join('');
+            },
+
+            // Utility: Clean Wikipedia text
+            cleanText(text) {
+                return text
+                    .replace(/\[.*?\]/g, '')
+                    .replace(/\{.*?\}/g, '')
+                    .replace(/==.*?==/g, '')
+                    .replace(/\n\n+/g, '\n')
+                    .replace(/[^\w\s.,!?;:'-]/g, '')
+                    .trim();
+            },
+
+            // Get current difficulty state
+            getCurrentState() {
+                const diff = this.state.difficulty;
+                return {
+                    article: this.state.articles[diff],
+                    scrambledWords: this.state.scrambledWords[diff],
+                    userInputs: this.state.userInputs[diff],
+                    guessInput: this.state.guessInput[diff] || '',
+                    guessResult: this.state.guessResult[diff],
+                    hintsRevealed: this.state.hintsRevealed[diff] || 0
+                };
+            },
+
+            // Reset all state for new game
+            resetState() {
+                ['easy', 'medium', 'hard'].forEach(diff => {
+                    this.state.guessInput[diff] = '';
+                    this.state.guessResult[diff] = null;
+                    this.state.hintsRevealed[diff] = 0;
+                    this.state.userInputs[diff] = [];
+                });
+            },
+
+            // Fetch articles for all difficulties
+            async fetchAllArticles() {
+                this.state.gameState = 'loading';
+                this.resetState();
+                this.render();
+
+                try {
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    const year = yesterday.getFullYear();
+                    const month = String(yesterday.getMonth() + 1).padStart(2, '0');
+                    const day = String(yesterday.getDate()).padStart(2, '0');
+
+                    const topResponse = await fetch(
+                        `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/${year}/${month}/${day}`
+                    );
+                    const topData = await topResponse.json();
+                    
+                    const articles = topData.items[0].articles
+                        .filter(a => !a.article.includes(':') && a.article !== 'Main_Page');
+                    
+                    const difficultyRanges = {
+                        easy: articles.slice(0, 50),
+                        medium: articles.slice(50, 200),
+                        hard: articles.slice(200, 500)
+                    };
+
+                    for (const [difficulty, pool] of Object.entries(difficultyRanges)) {
+                        await this.fetchArticleForDifficulty(difficulty, pool);
+                    }
+
+                    this.state.gameState = 'playing';
+                    this.render();
+                } catch (error) {
+                    this.state.gameState = 'error';
+                    this.render();
+                }
+            },
+
+            // Fetch and process a single article
+            async fetchArticleForDifficulty(difficulty, pool) {
+                const randomArticle = pool[Math.floor(Math.random() * pool.length)];
+                const articleTitle = randomArticle.article.replace(/_/g, ' ');
+
+                const response = await fetch(
+                    `https://en.wikipedia.org/w/api.php?action=query&format=json&titles=${encodeURIComponent(articleTitle)}&prop=extracts&explaintext=true&origin=*`
+                );
+                const data = await response.json();
+                const pages = data.query.pages;
+                const page = pages[Object.keys(pages)[0]];
+
+                if (!page.extract || page.extract.length < 200) {
+                    await this.fetchAllArticles();
+                    return;
+                }
+
+                const cleaned = this.cleanText(page.extract);
+                const sentences = cleaned.split(/[.!?]+/).filter(s => s.trim().length > 20);
+                
+                let startIndex = 0;
+                if (sentences.length > 10) {
+                    startIndex = 3 + Math.floor(Math.random() * 4);
+                }
+                
+                const selectedText = sentences.slice(startIndex, startIndex + 4).join('. ') + '.';
+                const words = selectedText.match(/[\w'-]+|[.,!?;:]/g) || [];
+
+                const scrambled = words.map(word => {
+                    if (/^[.,!?;:]$/.test(word)) {
+                        return { original: word, scrambled: word, isPunctuation: true };
+                    }
+                    return {
+                        original: word,
+                        scrambled: this.scrambleWord(word),
+                        isPunctuation: false
+                    };
+                });
+
+                this.state.articles[difficulty] = { title: page.title, text: selectedText };
+                this.state.scrambledWords[difficulty] = scrambled;
+                this.state.userInputs[difficulty] = new Array(scrambled.length).fill('');
+                this.state.guessInput[difficulty] = '';
+                this.state.guessResult[difficulty] = null;
+                this.state.hintsRevealed[difficulty] = 0;
+            },
+
+            // Handle word input change
+            handleInputChange(index, value) {
+                const diff = this.state.difficulty;
+                this.state.userInputs[diff][index] = value;
+                
+                const input = document.querySelector(`[data-word-index="${index}"]`);
+                if (input) {
+                    if (this.checkWord(index)) {
+                        input.classList.add('correct');
+                    } else {
+                        input.classList.remove('correct');
+                    }
+                }
+            },
+
+            // Check if a word is correct
+            checkWord(index) {
+                const current = this.getCurrentState();
+                return current.userInputs[index].toLowerCase() === 
+                       current.scrambledWords[index].original.toLowerCase();
+            },
+
+            // Handle title guess
+            handleGuess() {
+                const diff = this.state.difficulty;
+                const current = this.getCurrentState();
+                
+                if (!current.article || !current.guessInput.trim()) return;
+
+                const isCorrect = current.guessInput.toLowerCase().trim() === 
+                                 current.article.title.toLowerCase();
+                this.state.guessResult[diff] = isCorrect ? 'correct' : 'incorrect';
+                this.render();
+
+                if (!isCorrect) {
+                    setTimeout(() => {
+                        this.state.guessResult[diff] = null;
+                        this.render();
+                    }, 2000);
+                }
+            },
+
+            // Reveal a hint
+            revealHint() {
+                const diff = this.state.difficulty;
+                if (this.state.hintsRevealed[diff] >= 3) return;
+                this.state.hintsRevealed[diff]++;
+                this.render();
+            },
+
+            // Get hint text
+            getHint() {
+                const current = this.getCurrentState();
+                if (!current.article) return '';
+                
+                const title = current.article.title;
+                const count = current.hintsRevealed;
+
+                if (count === 0) return '';
+                if (count === 1) return `${title.length} characters`;
+                if (count === 2) return `Starts with: ${title[0]}`;
+                if (count === 3) return `First word: ${title.split(' ')[0]}`;
+                return '';
+            },
+
+            // Change difficulty
+            setDifficulty(level) {
+                this.state.difficulty = level;
+                this.render();
+            },
+
+            // Calculate progress
+            getProgress() {
+                const current = this.getCurrentState();
+                const correctCount = current.userInputs.filter((input, i) => 
+                    !current.scrambledWords[i].isPunctuation && this.checkWord(i)
+                ).length;
+                const totalWords = current.scrambledWords.filter(w => !w.isPunctuation).length;
+                return { correctCount, totalWords };
+            },
+
+            // Render loading state
+            renderLoading() {
+                return '<div class="loading">Loading...</div>';
+            },
+
+            // Render error state
+            renderError() {
+                return `
+                    <div class="loading">
+                        <p>Error loading article</p>
+                        <button onclick="app.fetchAllArticles()">Try again</button>
+                    </div>
+                `;
+            },
+
+            // Render success state
+            renderSuccess() {
+                const current = this.getCurrentState();
+                return `
+                    <div class="success">
+                        <h2>Correct!</h2>
+                        <div class="title">${current.article.title}</div>
+                        <button onclick="app.fetchAllArticles()">New article</button>
+                    </div>
+                `;
+            },
+
+            // Render main game UI
+            renderGame() {
+                const current = this.getCurrentState();
+                const { correctCount, totalWords } = this.getProgress();
+                const hint = this.getHint();
+
+                return `
+                    <h1>Wikipedia Unscrambler</h1>
+
+                    <div class="controls">
+                        ${['easy', 'medium', 'hard'].map(level => `
+                            <button class="${this.state.difficulty === level ? 'active' : ''}" 
+                                    tabindex="-1"
+                                    onclick="app.setDifficulty('${level}')">${level.charAt(0).toUpperCase() + level.slice(1)}</button>
+                        `).join('')}
+                        <button onclick="app.fetchAllArticles()" tabindex="-1">New article</button>
+                    </div>
+
+                    <div class="text-area" id="textArea"></div>
+
+                    <div class="guess-area">
+                        <p>What is the Wikipedia article title?</p>
+                        <input type="text" 
+                               class="guess-input" 
+                               placeholder="Type your guess..."
+                               value="${current.guessInput}"
+                               tabindex="-1"
+                               id="guessInput">
+                        
+                        ${current.guessResult === 'incorrect' ? 
+                            '<div class="feedback">Incorrect. Try again.</div>' : ''}
+                        
+                        <div class="hint">
+                            ${hint ? `Hint: ${hint} · ` : ''}
+                            ${current.hintsRevealed < 3 ? 
+                                '<button onclick="app.revealHint()">Get a hint</button>' : 
+                                'No more hints'}
+                        </div>
+                    </div>
+
+                    <div class="progress">
+                        Unscrambled ${correctCount} of ${totalWords} words
+                    </div>
+                `;
+            },
+
+            // Render word inputs
+            renderWordInputs() {
+                const textArea = document.getElementById('textArea');
+                if (!textArea) return;
+
+                const current = this.getCurrentState();
+                
+                current.scrambledWords.forEach((word, index) => {
+                    if (word.isPunctuation) {
+                        const span = document.createElement('span');
+                        span.textContent = word.scrambled + ' ';
+                        textArea.appendChild(span);
+                    } else {
+                        const input = this.createWordInput(word, index, current.userInputs[index]);
+                        textArea.appendChild(input);
+                        textArea.appendChild(document.createTextNode(' '));
+                    }
+                });
+            },
+
+            // Create a word input element
+            createWordInput(word, index, value) {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'word-input';
+                input.value = value;
+                input.placeholder = word.scrambled;
+                input.style.width = `${Math.max(word.scrambled.length * 12 + 20, 60)}px`;
+                input.dataset.wordIndex = index;
+
+                if (value && this.checkWord(index)) {
+                    input.classList.add('correct');
+                }
+
+                input.addEventListener('input', (e) => {
+                    this.handleInputChange(index, e.target.value);
+                });
+
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        const allInputs = Array.from(document.querySelectorAll('.word-input'));
+                        const currentIndex = allInputs.indexOf(e.target);
+                        
+                        let targetIndex;
+                        if (e.shiftKey) {
+                            targetIndex = currentIndex > 0 ? currentIndex - 1 : allInputs.length - 1;
+                        } else {
+                            targetIndex = currentIndex < allInputs.length - 1 ? currentIndex + 1 : 0;
+                        }
+                        allInputs[targetIndex].focus();
+                    }
+                });
+
+                return input;
+            },
+
+            // Setup guess input listeners
+            setupGuessInput() {
+                const guessInput = document.getElementById('guessInput');
+                if (!guessInput) return;
+
+                guessInput.addEventListener('input', (e) => {
+                    this.state.guessInput[this.state.difficulty] = e.target.value;
+                });
+
+                guessInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.handleGuess();
+                    }
+                });
+
+                guessInput.focus();
+            },
+
+            // Main render function
+            render() {
+                const appEl = document.getElementById('app');
+                
+                if (this.state.gameState === 'loading') {
+                    appEl.innerHTML = this.renderLoading();
+                    return;
+                }
+
+                if (this.state.gameState === 'error') {
+                    appEl.innerHTML = this.renderError();
+                    return;
+                }
+
+                const current = this.getCurrentState();
+                if (current.guessResult === 'correct') {
+                    appEl.innerHTML = this.renderSuccess();
+                    return;
+                }
+
+                appEl.innerHTML = this.renderGame();
+                this.renderWordInputs();
+                this.setupGuessInput();
+            }
+        };
+
+        // Initialize app
+        const app = WikipediaUnscrambler;
+        app.init();
+    </script>
+</body>
+</html>
