@@ -348,6 +348,18 @@
                         input.classList.remove('correct');
                     }
                 }
+                
+                // Update progress counter
+                this.updateProgress();
+            },
+
+            // Update progress display
+            updateProgress() {
+                const progressEl = document.querySelector('.progress');
+                if (progressEl) {
+                    const { correctCount, totalWords } = this.getProgress();
+                    progressEl.textContent = `Unscrambled ${correctCount} of ${totalWords} words`;
+                }
             },
 
             // Check if a word is correct
